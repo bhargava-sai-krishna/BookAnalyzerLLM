@@ -5,29 +5,23 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 import os
 
-# Embedding model (can be global as it's reusable)
-embeddings = OllamaEmbeddings(model="mxbai-embed-large")
+embeddings = OllamaEmbeddings(model="mxbai-embed-large") # Initializes the Ollama embeddings model.
 
 def get_vector_store(chat_id: str, pdf_files: list = None):
-    """
-    Initializes or retrieves a Chroma vector store for a given chat_id.
-    If pdf_files are provided, it will load and add documents to the store.
-    """
-    db_location_for_chat = f"./chroma_db/{chat_id}" # Unique directory for each chat
+    """Initializes or retrieves a Chroma vector store for a given chat_id, loading and adding documents if provided."""
+    db_location_for_chat = f"./chroma_db/{chat_id}" # Defines the unique directory path for the chat's vector store.
 
-    # Flag to check if the directory for this chat's DB already exists
-    db_exists = os.path.exists(db_location_for_chat)
+    db_exists = os.path.exists(db_location_for_chat) # Checks if the vector store directory already exists for the chat.
 
-    # Instantiate the text splitter with adjusted parameters for better context capture
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1500,  # Increased from 1000 to capture more context
-        chunk_overlap=300 # Increased from 200 for smoother transitions
+    text_splitter = RecursiveCharacterTextSplitter( # Instantiates the text splitter for document chunking.
+        chunk_size=1500,
+        chunk_overlap=300
     )
 
-    documents_to_add = []
-    ids_to_add = []
+    documents_to_add = [] # Initializes a list to hold documents prepared for addition.
+    ids_to_add = [] # Initializes a list to hold unique IDs for the documents.
 
-    if pdf_files: # Only process PDFs if provided
+    if pdf_files: # Processes PDF files if a list of file paths is provided.
         for file_path in pdf_files:
             if file_path.endswith(".pdf") and os.path.exists(file_path):
                 filename = os.path.basename(file_path)
@@ -46,36 +40,31 @@ def get_vector_store(chat_id: str, pdf_files: list = None):
             else:
                 print(f"[{chat_id}] Skipping invalid file: {file_path}")
 
-    # Initialize or load the Chroma vector store
-    vector_store = Chroma(
+    vector_store = Chroma( # Initializes or loads the Chroma vector store instance.
         collection_name=f"chat_{chat_id}_pdfs",
         persist_directory=db_location_for_chat,
         embedding_function=embeddings
     )
 
-    if not db_exists:
+    if not db_exists: # Handles the case where the vector store is being created for the first time.
         if documents_to_add:
             vector_store.add_documents(documents=documents_to_add, ids=ids_to_add)
             print(f"[{chat_id}] New vector store created and {len(documents_to_add)} documents added.")
         else:
             print(f"[{chat_id}] New vector store initialized (no documents added yet).")
-    elif documents_to_add: # DB exists, and we have new documents to add
+    elif documents_to_add: # Handles adding new documents to an existing vector store.
         vector_store.add_documents(documents=documents_to_add, ids=ids_to_add)
         print(f"[{chat_id}] {len(documents_to_add)} new documents added to existing vector store.")
-    else: # DB exists, and no new documents were provided in this call
+    else: # Handles loading an existing vector store when no new documents are provided.
         print(f"[{chat_id}] Vector store already exists. Loading existing store.")
-        # No need to call add_documents here, as no new docs were provided, and it's already loaded by Chroma() constructor
 
     return vector_store
 
 def get_retriever(chat_id: str, pdf_files: list = None):
-    """
-    Returns a retriever for a given chat_id, creating the vector store if necessary.
-    """
-    # Call get_vector_store which now handles logging more precisely
+    """Returns a configured retriever for a given chat_id, creating the vector store if necessary."""
     vector_store = get_vector_store(chat_id, pdf_files)
     retriever = vector_store.as_retriever(
-        search_type="mmr",  # better match diversity
+        search_type="mmr",
         search_kwargs={"k": 8}
     )
     return retriever

@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify, render_template, redirect, url_for
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
 from langchain_ollama.llms import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage
@@ -7,22 +8,19 @@ import os
 import uuid
 import shutil
 import re
-import json # For JSON operations
-import jsonlines # For JSONL operations
+import json
+import jsonlines
 
 app = Flask(__name__)
+CORS(app)
 
-# Base directory for storing chat history files
-CHAT_HISTORY_DIR = "./chat_histories"
+CHAT_HISTORY_DIR = "./chat_histories" # Base directory for storing chat history files
 
-# In-memory stores (still used for active session, but now backed by disk)
-chat_histories = {} # Stores history per chat_id: {chat_id: [HumanMessage, AIMessage, ...]}
-retrievers = {} # Stores active retrievers per chat_id: {chat_id: retriever_instance}
+chat_histories = {} # Stores in-memory chat history for active sessions.
+retrievers = {} # Stores in-memory retriever instances for active sessions.
 
-# Initialize the LLM model globally as it's likely reusable across chats
-model = OllamaLLM(model="llama3.2")
+model = OllamaLLM(model="llama3.2") # Initializes the LLM model.
 
-# Template for the LLM
 template = """
 You are a helpful assistant.
 Your primary goal is to answer questions ONLY based on the provided context.
@@ -42,9 +40,10 @@ Unless a specific word count is mentioned in the question, aim for an answer len
 {question}
 """
 
-prompt = ChatPromptTemplate.from_template(template)
+prompt = ChatPromptTemplate.from_template(template) # Creates a chat prompt template from the defined template string.
 
 def format_docs_with_sources(docs):
+    """Formats retrieved documents to include source file and chunk information."""
     output = []
     for doc in docs:
         source = doc.metadata.get("source_file", "unknown.pdf")
@@ -54,6 +53,7 @@ def format_docs_with_sources(docs):
     return "\n\n".join(output)
 
 def format_chat_history(history):
+    """Formats a list of chat messages into a string for the LLM prompt."""
     formatted_history = []
     for message in history:
         if isinstance(message, HumanMessage):
@@ -63,10 +63,7 @@ def format_chat_history(history):
     return "\n".join(formatted_history)
 
 def is_valid_chat_name(name):
-    """
-    Checks if a given name is valid for use as a chat_id (and thus a folder/file name).
-    Avoids characters that are problematic in file paths.
-    """
+    """Checks if a given name is valid for use as a chat ID and file system folder/file name."""
     if not name or not isinstance(name, str):
         return False, "Name cannot be empty."
     if not re.fullmatch(r"^[a-zA-Z0-9 _-]{1,100}$", name.strip()):
@@ -80,12 +77,12 @@ def is_valid_chat_name(name):
     return True, ""
 
 def get_chat_history_filepath(chat_id):
-    """Returns the file path for a chat's history JSONL file."""
+    """Returns the file path for a chat's history JSONL file, ensuring the directory exists."""
     os.makedirs(CHAT_HISTORY_DIR, exist_ok=True)
     return os.path.join(CHAT_HISTORY_DIR, f"{chat_id}.jsonl")
 
 def load_chat_history_from_file(chat_id):
-    """Loads chat history from a JSONL file."""
+    """Loads chat history from a JSONL file for a given chat ID."""
     filepath = get_chat_history_filepath(chat_id)
     history = []
     if os.path.exists(filepath):
@@ -99,12 +96,11 @@ def load_chat_history_from_file(chat_id):
             print(f"[{chat_id}] Loaded chat history from {filepath}")
         except Exception as e:
             print(f"[{chat_id}] Error loading chat history from {filepath}: {e}")
-            # Consider returning empty history if file is corrupt
             history = []
     return history
 
 def save_chat_history_to_file(chat_id, history):
-    """Saves chat history to a JSONL file."""
+    """Saves chat history to a JSONL file for a given chat ID."""
     filepath = get_chat_history_filepath(chat_id)
     try:
         with jsonlines.open(filepath, 'w') as writer:
@@ -117,27 +113,19 @@ def save_chat_history_to_file(chat_id, history):
     except Exception as e:
         print(f"[{chat_id}] Error saving chat history to {filepath}: {e}")
 
-# --- HTML Template Routes (no changes here for now, they are for direct Flask rendering) ---
 @app.route('/')
 def index():
-    """Serves the main landing page to create a new chat."""
+    """Serves the main landing page of the application."""
     return render_template('index.html')
 
 @app.route('/chat_page/<chat_id>')
 def chat_page(chat_id):
-    """Serves the chat interface for a specific chat_id."""
-    # The JavaScript on chat.html will extract the chat_id from the URL.
+    """Serves the chat interface for a specific chat ID."""
     return render_template('chat.html')
-# --- End HTML Template Routes ---
-
 
 @app.route('/create_chat', methods=['POST'])
 def create_chat():
-    """
-    API endpoint to create a new chat session.
-    Accepts an optional 'chat_name'. If not provided, generates a UUID.
-    Initializes an empty chat history and vector store directory.
-    """
+    """Creates a new chat session, generating an ID or using a provided name."""
     data = request.get_json()
     desired_chat_name = data.get("chat_name")
 
@@ -146,35 +134,29 @@ def create_chat():
         if not is_valid:
             return jsonify({"error": f"Invalid chat name: {msg}"}), 400
         
-        chat_id = desired_chat_name.strip() # Use the provided name as the ID
+        chat_id = desired_chat_name.strip()
 
-        # Check if this name is already in use (folder or history file)
         if os.path.exists(f"./chroma_db/{chat_id}") or \
            os.path.exists(f"./uploaded_pdfs/{chat_id}") or \
            os.path.exists(get_chat_history_filepath(chat_id)):
-            return jsonify({"error": f"Chat name '{chat_id}' already exists. Please choose a different name."}), 409 # 409 Conflict
+            return jsonify({"error": f"Chat name '{chat_id}' already exists. Please choose a different name."}), 409
     else:
-        chat_id = str(uuid.uuid4()) # Generate a unique ID if no name provided
+        chat_id = str(uuid.uuid4())
 
-    chat_histories[chat_id] = [] # Initialize in-memory
-    save_chat_history_to_file(chat_id, []) # Create empty history file
+    chat_histories[chat_id] = []
+    save_chat_history_to_file(chat_id, [])
     
     try:
-        get_vector_store(chat_id) # Call with no pdf_files to just create the directory
+        get_vector_store(chat_id)
         print(f"[{chat_id}] New chat created.")
         return jsonify({"chat_id": chat_id}), 201
     except Exception as e:
         print(f"Error creating chat '{chat_id}': {e}")
         return jsonify({"error": f"Failed to create chat: {str(e)}"}), 500
 
-
 @app.route('/upload_pdfs/<chat_id>', methods=['POST'])
 def upload_pdfs(chat_id):
-    """
-    API endpoint to upload PDF files for a given chat_id.
-    Files are saved and then indexed into the chat's specific Chroma DB.
-    """
-    # Load chat history if not in memory (e.g., after server restart)
+    """Uploads PDF files for a given chat ID and indexes them into its vector store."""
     if chat_id not in chat_histories:
         db_location_for_chat = f"./chroma_db/{chat_id}"
         if os.path.exists(db_location_for_chat) or os.path.exists(get_chat_history_filepath(chat_id)):
@@ -207,7 +189,7 @@ def upload_pdfs(chat_id):
         vector_store_instance = get_vector_store(chat_id, pdf_files=pdf_paths)
         retrievers[chat_id] = vector_store_instance.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": 8} # Changed from 6 to 8 for more retrieved context
+            search_kwargs={"k": 8}
         )
         print(f"[{chat_id}] PDFs processed and retriever updated.")
         return jsonify({"message": f"PDFs uploaded and indexed for chat {chat_id}."}), 200
@@ -217,14 +199,9 @@ def upload_pdfs(chat_id):
 
 @app.route('/chat/<chat_id>', methods=['POST'])
 def chat_with_llm(chat_id):
-    """
-    API endpoint to handle chat interactions for a given chat_id.
-    Retrieves documents, constructs prompt with history, and gets LLM response.
-    """
-    # Load chat history if not in memory (e.g., after server restart)
+    """Handles chat interactions, retrieves documents, and generates LLM responses."""
     if chat_id not in chat_histories:
         db_location_for_chat = f"./chroma_db/{chat_id}"
-        # Check if the DB directory or history file exists for this chat_id
         if os.path.exists(db_location_for_chat) or os.path.exists(get_chat_history_filepath(chat_id)):
             chat_histories[chat_id] = load_chat_history_from_file(chat_id)
             print(f"[{chat_id}] Chat history re-initialized from file.")
@@ -248,7 +225,6 @@ def chat_with_llm(chat_id):
 
     print(f"[{chat_id}] Question received: {question}")
 
-    # Retrieve relevant documents
     docs = current_retriever.invoke(question)
     context = format_docs_with_sources(docs)
     print(f"[{chat_id}] Retrieved {len(docs)} documents.")
@@ -259,11 +235,9 @@ def chat_with_llm(chat_id):
     chain = prompt | model
     result = chain.invoke({"context": context, "chat_history": formatted_history, "question": question})
 
-    # Update in-memory history
     chat_histories[chat_id].append(HumanMessage(content=question))
     chat_histories[chat_id].append(AIMessage(content=result))
     
-    # Save updated history to file
     save_chat_history_to_file(chat_id, chat_histories[chat_id])
     
     print(f"[{chat_id}] Answer generated and history updated.")
@@ -272,10 +246,7 @@ def chat_with_llm(chat_id):
 
 @app.route('/rename_chat', methods=['POST'])
 def rename_chat():
-    """
-    API endpoint to rename an existing chat session.
-    Updates chat ID in memory and renames associated file system directories/files.
-    """
+    """Renames an existing chat session, updating in-memory data and file system directories/files."""
     data = request.get_json()
     old_chat_id = data.get("old_chat_id")
     new_chat_name = data.get("new_chat_name")
@@ -287,9 +258,8 @@ def rename_chat():
     if not is_valid:
         return jsonify({"error": f"Invalid new chat name: {msg}"}), 400
 
-    new_chat_name = new_chat_name.strip() # Clean input
+    new_chat_name = new_chat_name.strip()
 
-    # Check if old chat exists in memory or on disk
     old_chroma_path = f"./chroma_db/{old_chat_id}"
     old_uploaded_path = f"./uploaded_pdfs/{old_chat_id}"
     old_history_path = get_chat_history_filepath(old_chat_id)
@@ -297,7 +267,6 @@ def rename_chat():
     if not (os.path.exists(old_chroma_path) or os.path.exists(old_history_path) or old_chat_id in chat_histories):
         return jsonify({"error": f"Original chat ID '{old_chat_id}' not found. Cannot rename."}), 404
 
-    # Check if new name already exists as a directory or in memory
     new_chroma_path = f"./chroma_db/{new_chat_name}"
     new_uploaded_path = f"./uploaded_pdfs/{new_chat_name}"
     new_history_path = get_chat_history_filepath(new_chat_name)
@@ -306,15 +275,13 @@ def rename_chat():
        os.path.exists(new_uploaded_path) or \
        os.path.exists(new_history_path) or \
        new_chat_name in chat_histories:
-        return jsonify({"error": f"New chat name '{new_chat_name}' already exists. Please choose a different name."}), 409 # 409 Conflict
+        return jsonify({"error": f"New chat name '{new_chat_name}' already exists. Please choose a different name."}), 409
 
     try:
-        # 1. Rename directories/files on file system
         if os.path.exists(old_chroma_path):
             os.rename(old_chroma_path, new_chroma_path)
             print(f"Renamed Chroma DB from '{old_chat_id}' to '{new_chat_name}'")
         else:
-            # If Chroma path doesn't exist, create an empty one for the new name
             os.makedirs(new_chroma_path)
             print(f"Chroma DB for '{old_chat_id}' not found, created empty one for '{new_chat_name}'")
 
@@ -322,7 +289,6 @@ def rename_chat():
             os.rename(old_uploaded_path, new_uploaded_path)
             print(f"Renamed Uploaded PDFs from '{old_chat_id}' to '{new_chat_name}'")
         else:
-            # If uploaded path doesn't exist, create an empty one for the new name
             os.makedirs(new_uploaded_path)
             print(f"Uploaded PDFs for '{old_chat_id}' not found, created empty one for '{new_chat_name}'")
         
@@ -330,12 +296,9 @@ def rename_chat():
             os.rename(old_history_path, new_history_path)
             print(f"Renamed chat history file from '{old_chat_id}.jsonl' to '{new_chat_name}.jsonl'")
         else:
-            # Create an empty history file for the new name if old didn't exist
             save_chat_history_to_file(new_chat_name, [])
             print(f"Chat history file for '{old_chat_id}' not found, created empty one for '{new_chat_name}'")
 
-
-        # 2. Update in-memory dictionaries
         if old_chat_id in chat_histories:
             chat_histories[new_chat_name] = chat_histories.pop(old_chat_id)
             print(f"Updated chat_histories: '{old_chat_id}' -> '{new_chat_name}'")
@@ -349,19 +312,14 @@ def rename_chat():
 
     except Exception as e:
         print(f"Error renaming chat '{old_chat_id}' to '{new_chat_name}': {e}")
-        # Basic attempt to rollback in case of error (more robust rollback needed for production)
         if os.path.exists(new_chroma_path) and not os.path.exists(old_chroma_path): os.rename(new_chroma_path, old_chroma_path)
         if os.path.exists(new_uploaded_path) and not os.path.exists(old_uploaded_path): os.rename(new_uploaded_path, old_uploaded_path)
         if os.path.exists(new_history_path) and not os.path.exists(old_history_path): os.rename(new_history_path, old_history_path)
         return jsonify({"error": f"Failed to rename chat: {str(e)}"}), 500
 
-
 @app.route('/clear_all_data', methods=['POST'])
 def clear_all_data():
-    """
-    API endpoint to clear all chat histories, uploaded files, and Chroma DBs.
-    USE WITH CAUTION: This will permanently delete all data.
-    """
+    """Clears all chat histories, uploaded files, and Chroma DBs from disk and memory."""
     global chat_histories, retrievers
     chat_histories = {}
     retrievers = {}
@@ -392,10 +350,7 @@ def clear_all_data():
 
 @app.route('/list_chats', methods=['GET'])
 def list_chats():
-    """
-    API endpoint to list all available chat IDs (which are now names).
-    Scans the chroma_db directory for chat folders.
-    """
+    """Lists all available chat IDs by scanning the Chroma DB directories."""
     chat_ids = []
     if os.path.exists("./chroma_db"):
         for item in os.listdir("./chroma_db"):
@@ -407,11 +362,8 @@ def list_chats():
 
 @app.route('/load_chat_history/<chat_id>', methods=['GET'])
 def load_chat_history_api(chat_id):
-    """
-    API endpoint to load the conversation history for a specific chat_id.
-    """
+    """Loads and returns the conversation history for a specific chat ID."""
     history = load_chat_history_from_file(chat_id)
-    # Convert HumanMessage/AIMessage objects to a serializable format for JSON
     serializable_history = []
     for msg in history:
         if isinstance(msg, HumanMessage):
@@ -421,11 +373,9 @@ def load_chat_history_api(chat_id):
     
     return jsonify({"chat_history": serializable_history}), 200
 
-
 if __name__ == '__main__':
-    # Ensure the base directories for chroma dbs, uploaded pdfs, and chat histories exist
     os.makedirs("./chroma_db", exist_ok=True)
     os.makedirs("./uploaded_pdfs", exist_ok=True)
     os.makedirs(CHAT_HISTORY_DIR, exist_ok=True)
     print("Starting Flask application...")
-    app.run(debug=True) # For development. Set debug=False for production.
+    app.run(debug=True)
