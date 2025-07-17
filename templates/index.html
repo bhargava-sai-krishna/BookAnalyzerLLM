@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Application - Home</title>
+</head>
+<body>
+    <h1>Welcome to the RAG Chat App</h1>
+
+    <section>
+        <h2>Create a New Chat</h2>
+        <form id="createChatForm">
+            <button type="submit">Create New Chat</button>
+        </form>
+        <p id="chatIdDisplay"></p>
+        <p>Once you have a Chat ID, you can go to the chat page:</p>
+        <a id="chatLink" href="#" style="display:none;">Go to Chat Page</a>
+    </section>
+
+    <script>
+        document.getElementById('createChatForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+
+            try {
+                const response = await fetch('/create_chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    const chatId = data.chat_id;
+                    document.getElementById('chatIdDisplay').innerText = `New Chat ID: ${chatId}`;
+                    const chatLink = document.getElementById('chatLink');
+                    chatLink.href = `/chat_page/${chatId}`;
+                    chatLink.style.display = 'block';
+                    alert(`Chat created! ID: ${chatId}`);
+                } else {
+                    document.getElementById('chatIdDisplay').innerText = `Error: ${data.error || 'Unknown error'}`;
+                }
+            } catch (error) {
+                console.error('Error creating chat:', error);
+                document.getElementById('chatIdDisplay').innerText = 'Error connecting to server.';
+            }
+        });
+    </script>
+</body>
+</html>

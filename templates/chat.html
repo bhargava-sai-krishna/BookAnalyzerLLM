@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat with Docs</title>
+    <style>
+        #chat-window {
+            border: 1px solid #ccc;
+            height: 400px;
+            overflow-y: scroll;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .message-container {
+            margin-bottom: 8px;
+        }
+        .human-message {
+            color: blue;
+        }
+        .ai-message {
+            color: green;
+        }
+        .source-info {
+            font-size: 0.8em;
+            color: #777;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chat with Your Documents</h1>
+    <h2 id="chatIdHeader"></h2>
+
+    <section>
+        <h3>Upload PDFs for this Chat</h3>
+        <form id="uploadForm" enctype="multipart/form-data">
+            <input type="file" id="pdfFiles" name="pdfs" multiple accept=".pdf">
+            <button type="submit">Upload PDFs</button>
+        </form>
+        <p id="uploadStatus"></p>
+    </section>
+
+    <hr>
+
+    <section>
+        <h3>Ask a Question</h3>
+        <div id="chat-window"></div>
+        <form id="questionForm">
+            <input type="text" id="questionInput" placeholder="Type your question..." size="50">
+            <button type="submit">Send</button>
+        </form>
+        <p id="questionStatus"></p>
+    </section>
+
+    <script>
+        let chatId = ''; // Will be set from URL
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const pathSegments = window.location.pathname.split('/');
+            chatId = pathSegments[pathSegments.length - 1];
+            document.getElementById('chatIdHeader').innerText = `Chat ID: ${chatId}`;
+        });
+
+        document.getElementById('uploadForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+
+            const formData = new FormData();
+            const pdfFiles = document.getElementById('pdfFiles').files;
+
+            if (pdfFiles.length === 0) {
+                alert("Please select PDF files to upload.");
+                return;
+            }
+
+            for (let i = 0; i < pdfFiles.length; i++) {
+                formData.append('pdfs', pdfFiles[i]);
+            }
+
+            try {
+                document.getElementById('uploadStatus').innerText = 'Uploading and indexing... Please wait.';
+                const response = await fetch(`/upload_pdfs/${chatId}`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById('uploadStatus').innerText = `Success: ${data.message}`;
+                    alert("PDFs uploaded and indexed successfully!");
+                } else {
+                    document.getElementById('uploadStatus').innerText = `Error: ${data.error || 'Unknown error'}`;
+                }
+            } catch (error) {
+                console.error('Error uploading PDFs:', error);
+                document.getElementById('uploadStatus').innerText = 'Error connecting to server for upload.';
+            }
+        });
+
+        document.getElementById('questionForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+
+            const questionInput = document.getElementById('questionInput');
+            const question = questionInput.value.trim();
+
+            if (!question) {
+                alert("Please enter a question.");
+                return;
+            }
+
+            const chatWindow = document.getElementById('chat-window');
+
+            // Display human message
+            const humanMessageDiv = document.createElement('div');
+            humanMessageDiv.classList.add('message-container', 'human-message');
+            humanMessageDiv.innerText = `You: ${question}`;
+            chatWindow.appendChild(humanMessageDiv);
+            chatWindow.scrollTop = chatWindow.scrollHeight; // Scroll to bottom
+
+            questionInput.value = ''; // Clear input field
+            document.getElementById('questionStatus').innerText = 'Thinking...';
+
+            try {
+                const response = await fetch(`/chat/${chatId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ question: question })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById('questionStatus').innerText = '';
+
+                    // Display AI message
+                    const aiMessageDiv = document.createElement('div');
+                    aiMessageDiv.classList.add('message-container', 'ai-message');
+                    aiMessageDiv.innerText = `AI: ${data.answer}`;
+                    chatWindow.appendChild(aiMessageDiv);
+
+                    // Display sources
+                    if (data.sources && data.sources.length > 0) {
+                        const sourcesDiv = document.createElement('div');
+                        sourcesDiv.classList.add('source-info');
+                        sourcesDiv.innerText = 'Sources: ' + data.sources.map(s => `${s.source_file} (Chunk ${s.chunk})`).join('; ');
+                        chatWindow.appendChild(sourcesDiv);
+                    }
+
+                    chatWindow.scrollTop = chatWindow.scrollHeight; // Scroll to bottom
+
+                } else {
+                    document.getElementById('questionStatus').innerText = `Error: ${data.error || 'Unknown error'}`;
+                }
+            } catch (error) {
+                console.error('Error asking question:', error);
+                document.getElementById('questionStatus').innerText = 'Error connecting to server for chat.';
+            }
+        });
+    </script>
+</body>
+</html>
