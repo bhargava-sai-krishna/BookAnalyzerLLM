@@ -3,31 +3,128 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chat Application - Home</title>
+    <title>RAG Chat Application</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f7f6; color: #333; }
+        h1 { color: #2c3e50; }
+        section {
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+        }
+        h2 { color: #34495e; margin-top: 0; }
+        form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+        input[type="text"], button {
+            padding: 10px 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 1em;
+        }
+        button {
+            cursor: pointer;
+            background-color: #28a745; /* Green */
+            color: white;
+            border: none;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #218838;
+        }
+        #createNamedChatButton {
+            background-color: #007bff; /* Blue */
+        }
+        #createNamedChatButton:hover {
+            background-color: #0056b3;
+        }
+        p { margin-top: 15px; }
+        a {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        #createStatus {
+            margin-left: 10px;
+            font-size: 0.9em;
+            color: #dc3545; /* Red for errors */
+        }
+        #chatList ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        #chatList li {
+            background-color: #f0f0f0;
+            margin-bottom: 5px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #chatList li a {
+            display: block;
+            color: #333;
+            text-decoration: none;
+        }
+        #chatList li a:hover {
+            background-color: #e0e0e0;
+            border-radius: 5px;
+        }
+    </style>
 </head>
 <body>
     <h1>Welcome to the RAG Chat App</h1>
 
     <section>
         <h2>Create a New Chat</h2>
-        <form id="createChatForm">
-            <button type="submit">Create New Chat</button>
+        <p>You can create a chat with a random ID or provide your own name.</p>
+        
+        <form id="createNamedChatForm">
+            <input type="text" id="chatNameInput" placeholder="Enter chat name (optional)" size="30">
+            <button type="submit" id="createNamedChatButton">Create Chat</button>
+            <span id="createStatus"></span>
         </form>
+        
         <p id="chatIdDisplay"></p>
         <p>Once you have a Chat ID, you can go to the chat page:</p>
         <a id="chatLink" href="#" style="display:none;">Go to Chat Page</a>
     </section>
 
+    <section>
+        <h2>Existing Chats</h2>
+        <div id="chatList">
+            <p>Loading chats...</p>
+            <ul></ul>
+        </div>
+    </section>
+
     <script>
-        document.getElementById('createChatForm').addEventListener('submit', async function(event) {
+        document.getElementById('createNamedChatForm').addEventListener('submit', async function(event) {
             event.preventDefault();
+
+            const chatName = document.getElementById('chatNameInput').value.trim();
+            const createStatus = document.getElementById('createStatus');
+            createStatus.innerText = ''; // Clear previous status
+
+            const requestBody = {};
+            if (chatName) {
+                requestBody.chat_name = chatName;
+            }
 
             try {
                 const response = await fetch('/create_chat', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    body: JSON.stringify(requestBody)
                 });
 
                 const data = await response.json();
@@ -38,14 +135,51 @@
                     chatLink.href = `/chat_page/${chatId}`;
                     chatLink.style.display = 'block';
                     alert(`Chat created! ID: ${chatId}`);
+                    loadExistingChats(); // Reload list of chats
                 } else {
-                    document.getElementById('chatIdDisplay').innerText = `Error: ${data.error || 'Unknown error'}`;
+                    createStatus.innerText = `Error: ${data.error || 'Unknown error'}`;
+                    createStatus.style.color = '#dc3545'; // Set error color
                 }
             } catch (error) {
                 console.error('Error creating chat:', error);
-                document.getElementById('chatIdDisplay').innerText = 'Error connecting to server.';
+                createStatus.innerText = 'Error connecting to server.';
+                createStatus.style.color = '#dc3545';
             }
         });
+
+        async function loadExistingChats() {
+            const chatListDiv = document.getElementById('chatList');
+            chatListDiv.innerHTML = '<p>Loading chats...</p>';
+            try {
+                const response = await fetch('/list_chats');
+                const data = await response.json();
+                if (response.ok) {
+                    if (data.chat_ids && data.chat_ids.length > 0) {
+                        const ul = document.createElement('ul');
+                        data.chat_ids.forEach(chatId => {
+                            const li = document.createElement('li');
+                            const a = document.createElement('a');
+                            a.href = `/chat_page/${chatId}`;
+                            a.textContent = chatId;
+                            li.appendChild(a);
+                            ul.appendChild(li);
+                        });
+                        chatListDiv.innerHTML = '';
+                        chatListDiv.appendChild(ul);
+                    } else {
+                        chatListDiv.innerHTML = '<p>No existing chats found.</p>';
+                    }
+                } else {
+                    chatListDiv.innerHTML = `<p style="color:red;">Error loading chats: ${data.error || 'Unknown error'}</p>`;
+                }
+            } catch (error) {
+                console.error('Error loading existing chats:', error);
+                chatListDiv.innerHTML = '<p style="color:red;">Error connecting to server to load chats.</p>';
+            }
+        }
+
+        // Load chats when the page loads
+        document.addEventListener('DOMContentLoaded', loadExistingChats);
     </script>
 </body>
 </html>
