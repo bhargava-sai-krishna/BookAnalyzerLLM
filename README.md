@@ -163,10 +163,10 @@ You will need to run the backend and frontend simultaneously in separate termina
 The architecture and data flow of this application are described by the following diagrams:
 
 * **Data Flow Diagram (DFD):**
-    ![RAG Chat Application DFD](project management content/Dataflow.png)
+    ![RAG Chat Application DFD](https://github.com/bhargava-sai-krishna/BookAnalyzerLLM/blob/main/project%20management%20content/Dataflow.png)
 
 * **Use Case Diagram:**
-    ![RAG Chat Application Use Case Diagram](project management content/Use case.png)
+    ![RAG Chat Application Use Case Diagram](https://github.com/bhargava-sai-krishna/BookAnalyzerLLM/blob/main/project%20management%20content/Use%20case.png)
 
 * **UML Class Diagram:**
-    ![RAG Chat Application UML Class Diagram](project management content/UML diagram.png)
+    ![RAG Chat Application UML Class Diagram](https://github.com/bhargava-sai-krishna/BookAnalyzerLLM/blob/main/project%20management%20content/UML%20diagram.png)
